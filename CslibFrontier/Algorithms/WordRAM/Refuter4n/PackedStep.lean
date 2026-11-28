@@ -65,6 +65,8 @@ The searches of a step read only words. A least name with a property is the asce
   reader search and pair creation.
 * `Cslib.Algorithms.WordRAM.Refuter4n.elim_mem_deleteConstraint`, `Bounded.deleteConstraint`:
   deleting a constraint keeps the others and boundedness.
+* `Cslib.Algorithms.WordRAM.Refuter4n.elim_mem_of_mem_children`, `Rep.partner_lt`: children are
+  constraints, and partners in a valid represented state are below `N`.
 * `Cslib.Algorithms.WordRAM.Refuter4n.Rep.applyStep_degeneratePair`: Case 2.
 * `Cslib.Algorithms.WordRAM.Refuter4n.Rep.mem_pairs_iff`, `Rep.pFindPair_eq`,
   `Rep.pGetChildren_eq`, `Rep.length_pGetChildren`: pair records, `findPair`, `getChildren` and
@@ -230,7 +232,8 @@ private theorem sort_eq_filter_range' {s : Finset ℕ} {N : ℕ} (hs : ∀ i ∈
 
 /-! ### Constraints after a deletion -/
 
-private theorem elim_mem_of_mem_children {S : State n} {p : ℕ} {c : ℕ ⊕ ℕ}
+/-- A child of a name is a constraint of the state: a gate or an equation. -/
+theorem elim_mem_of_mem_children {S : State n} {p : ℕ} {c : ℕ ⊕ ℕ}
     (hc : c ∈ S.children p) : c.elim (· ∈ S.gates) (· ∈ S.eqns) := by
   rcases c with J | e
   · exact ((inl_mem_children _).1 hc).1
@@ -502,6 +505,13 @@ theorem length_pGetChildren (h : Rep N E P S) {p : ℕ} (hp : p < N) :
     (pGetChildren N E p P).length = S.deg p := by
   rw [h.pGetChildren_eq hp, length_getChildren]
 
+/-- In a valid represented state, the partner of any name in a pair is below `N`. -/
+theorem partner_lt (h : Rep N E P S) (hS : S.Valid f) {pr : ZeroPair} (hpr : pr ∈ S.pairs)
+    (x : ℕ) : pr.partner x < N := by
+  obtain ⟨h₁, h₂⟩ := h.pairs_lt hS hpr
+  unfold ZeroPair.partner
+  split_ifs <;> assumption
+
 /-- **Case 2.** On a valid represented state, for a parameter `p` below `N`, the packed Case 2
 represents `applyStep` of `.degeneratePair p`. -/
 theorem applyStep_degeneratePair (h : Rep N E P S) (hS : S.Valid f) {p : ℕ} (hp : p < N) :
@@ -513,11 +523,9 @@ theorem applyStep_degeneratePair (h : Rep N E P S) (hS : S.Valid f) {p : ℕ} (h
   rcases hf : findPair S p with _ | pr
   · exact h
   · obtain ⟨hmem, -⟩ := findPair_spec hf
-    obtain ⟨h₁, h₂⟩ := h.pairs_lt hS hmem
     dsimp only
     split_ifs with hd
-    · have hpart : pr.partner p < N := by unfold ZeroPair.partner; split_ifs <;> assumption
-      exact h.fixConst hB hpart _
+    · exact h.fixConst hB (h.partner_lt hS hmem p) _
     · have hnd := nodup_getChildren S p
       rcases hc : getChildren S p with _ | ⟨N₁, _ | ⟨N₂, rest⟩⟩
       · exact h

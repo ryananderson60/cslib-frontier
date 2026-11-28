@@ -328,11 +328,6 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (hB : Bo
     Rep N E (pPairCreation N G P) (applyStep S (.pairCreation G)) :=
   h.applyStep_pairCreation hB hG hfresh
 
-/-- The packed Case 2 (module client of `Rep.applyStep_degeneratePair`). -/
-example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
-    (hS : S.Valid f) {p : ℕ} (hp : p < N) :
-    Rep N E (pDegeneratePair N E p P) (applyStep S (.degeneratePair p)) :=
-  h.applyStep_degeneratePair hS hp
 
 /-- Deleting a constraint keeps the others and boundedness (module clients of
 `elim_mem_deleteConstraint` and `Bounded.deleteConstraint`). -/
@@ -425,10 +420,12 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : Boo
   ⟨rowOtherArg_rowOf g p, rowFixArg_rowOf g w,
     h.andOnPairStep hS hG hpr hw (fun _ hq => by cases hq) b c hHr hHrG (fun _ hq => by cases hq)⟩
 
-/-- The arguments of the packed Case 5a (module client of `Rep.pAndOnPair_eq`). -/
+/-- The arguments of the packed Case 5a: with no pair at `p`, the packed Case 5a is the identity,
+as `applyStep` is (module client of `Rep.pAndOnPair_eq`). -/
 example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
-    (hS : S.Valid f) {G : ℕ} (hG : G ∈ S.gates) (p : ℕ) :=
-  h.pAndOnPair_eq hS hG p
+    (hS : S.Valid f) {G : ℕ} (hG : G ∈ S.gates) {p : ℕ} (hf : findPair S p = none) :
+    pAndOnPair N E G p P = P := by
+  rw [h.pAndOnPair_eq hS hG p, hf]
 
 #guard rowOtherArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 0 == 1
 #guard rowOtherArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 1 == 0
@@ -447,5 +444,48 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : Boo
 #guard (pApplyStep 4 22 degP (.deleteConstantGate 3)).out == litCode degS₁.out
 #guard (pApplyStep 4 22 xorP (.moveAffine 3)).eqnRows.getD 0 0 == eqnWord 4 (xorS₁.eqn 0) true
 #guard (pApplyStep 4 22 xorP (.moveAffine 3)).aux == maskOf xorS₁.aux
+
+/-- Encodings of the primitive operations (module clients of `maskOf_erase`, `maskOf_insert`,
+`permTT_ttOf`, `permTT_lt`, `argCode_eq_node`, `substRow_rowOf`, `rowLt_substRow`,
+`substOut_litCode`, `litWordOf_eq`, `affWord_rowOf`, `testBit_eqnWord` and
+`substWord_eqnWord`). -/
+example (s : Finset ℕ) (i N v J : ℕ) (op : Bool → Bool → Bool) (n₁ n₂ : Bool) (g : Gate)
+    (ℓ o : Lit) (hℓ : ∀ y, ℓ.Reads y → y < N) (hv : v < N) (hJ : J < N)
+    (hl : argCode g.left < N + 2) (hr : argCode g.right < N + 2) {r : GateRow} (hrN : RowLt N r)
+    (hla : argCode ℓ.arg < N + 2) (e : Equation) (he : ∀ j ∈ e.terms, j < N) (alive : Bool) :
+    maskOf (s.erase i) = clearBit (maskOf s) i ∧ maskOf (insert i s) = setBit (maskOf s) i ∧
+      permTT (ttOf op) (idx n₁ n₂) = ttOf (fun a b => op (a ^^ n₁) (b ^^ n₂)) ∧
+      permTT (ttOf op) i < 16 ∧ (argCode (.node v) = v + 2 ↔ Arg.node v = .node v) ∧
+      substRow v (argCode ℓ.arg) ℓ.neg.toNat (rowOf g) = rowOf (g.subst v ℓ) ∧
+      RowLt N (substRow v (argCode ℓ.arg) ℓ.neg.toNat r) ∧
+      substOut v (argCode ℓ.arg) ℓ.neg.toNat (litCode o) = litCode (o.subst v ℓ) ∧
+      litWordOf N (argCode ℓ.arg) ℓ.neg.toNat = litWord N ℓ ∧
+      affWord N (rowOf g) J = eqnWord N (affEqn g J) true ∧
+      (eqnWord N e alive).testBit N = e.rhs ∧
+      substWord v (litWord N ℓ) (eqnWord N e alive) = eqnWord N (e.subst v ℓ) alive :=
+  ⟨maskOf_erase s i, maskOf_insert s i, permTT_ttOf op n₁ n₂, permTT_lt _ _, argCode_eq_node,
+    substRow_rowOf g v ℓ, rowLt_substRow hrN hla, substOut_litCode v ℓ o, litWordOf_eq hℓ,
+    affWord_rowOf hJ hl hr, by rw [testBit_eqnWord]; simp, substWord_eqnWord hv hℓ he alive⟩
+
+/-- Boundedness is preserved by the state operations (module clients of `Bounded.deleteGate`,
+`Bounded.restrict`, `Bounded.deleteEqn`, `Bounded.dropEqn`, `Bounded.dropTrivialEqn`,
+`Bounded.swap`, `Bounded.addPair` and `Bounded.moveAffine`). -/
+example {n N : ℕ} {S : State n} (hB : Bounded N S) (J x e v Q : ℕ) {ℓ : Lit}
+    (hℓ : ∀ y, ℓ.Reads y → y < N) (P : Finset ZeroPair) (c : Bool) (T : Finset ℕ)
+    (pr : ZeroPair) {K : ℕ} (hK : K ∈ S.gates) (hKN : K < N) :
+    Bounded N (S.deleteGate J ℓ) ∧ Bounded N (S.restrict x ℓ P) ∧
+      Bounded N (S.deleteEqn e v ℓ) ∧ Bounded N (S.dropEqn e v) ∧
+      Bounded N (S.dropTrivialEqn e) ∧ Bounded N (S.swap x Q c T) ∧
+      Bounded N (S.addPair pr) ∧ Bounded N (S.moveAffine K e) :=
+  ⟨hB.deleteGate J hℓ, hB.restrict x hℓ P, hB.deleteEqn e v hℓ, hB.dropEqn e v,
+    hB.dropTrivialEqn e, hB.swap x Q c T, hB.addPair pr, hB.moveAffine hK hKN e⟩
+
+/-- Children are constraints, and partners are below `N` (module clients of
+`elim_mem_of_mem_children` and `Rep.partner_lt`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {p : ℕ} {c : ℕ ⊕ ℕ} (hc : c ∈ S.children p) {pr : ZeroPair}
+    (hpr : pr ∈ S.pairs) (x : ℕ) :
+    c.elim (· ∈ S.gates) (· ∈ S.eqns) ∧ pr.partner x < N :=
+  ⟨elim_mem_of_mem_children hc, h.partner_lt hS hpr x⟩
 
 end CslibFrontierTests.Refuter4nPackedOps

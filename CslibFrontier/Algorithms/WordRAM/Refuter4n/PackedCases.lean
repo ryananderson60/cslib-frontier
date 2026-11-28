@@ -181,8 +181,7 @@ theorem applyStep_pairInSystem (h : Rep N E P S) (hS : S.Valid f) (hndeg : ¬ S.
   rcases hf : findPair S p with _ | pr
   · exact h
   obtain ⟨hmem, hcont⟩ := findPair_spec hf
-  obtain ⟨h₁, h₂⟩ := h.pairs_lt hS hmem
-  have hrN : pr.partner p < N := by unfold ZeroPair.partner; split_ifs <;> assumption
+  have hrN : pr.partner p < N := h.partner_lt hS hmem p
   dsimp only
   rw [h.pGetChildren_eq hrN, h.pGetChildren_eq hp]
   rcases hc₁ : getChildren S (pr.partner p) with _ | ⟨Hr, l₁⟩ <;>
@@ -203,9 +202,8 @@ theorem applyStep_pairInSystem (h : Rep N E P S) (hS : S.Valid f) (hndeg : ¬ S.
       (fun y hy => absurd hy (by simp [Lit.Reads, Lit.const])) _
   have hm : Hr.elim (· ∈ (S.fixConst (pr.partner p) (pr.partnerBias p)).gates)
       (· ∈ (S.fixConst (pr.partner p) (pr.partnerBias p)).eqns) := by
-    rcases Hr with J | e'
-    · exact ((inl_mem_children _).1 hHr).1
-    · exact ((inr_mem_children _).1 hHr).1
+    have hm₀ := elim_mem_of_mem_children hHr
+    rcases Hr with J | e' <;> exact hm₀
   have h₂' := (h.fixConst hB hrN (pr.partnerBias p)).pDeleteConstraint hB₁ hm
   dsimp only
   rw [h₂'.length_pGetChildren hp]
@@ -321,9 +319,8 @@ theorem andOnPairStep (h : Rep N E P S) (hS : S.Valid f) {G : ℕ} (hG : G ∈ S
   have hGN : G < N := Finset.mem_range.1 (h.names (by simp [nameSet, hG]))
   have hc0 : ∀ c : Bool, ∀ y, (Lit.const c).Reads y → y < N := fun _ y hy =>
     absurd hy (by simp [Lit.Reads, Lit.const])
-  have hpart : ∀ {q : ZeroPair}, q ∈ S.pairs → ∀ x, q.partner x < N := fun hq x => by
-    obtain ⟨h₁, h₂⟩ := h.pairs_lt hS hq
-    unfold ZeroPair.partner; split_ifs <;> assumption
+  have hpart : ∀ {q : ZeroPair}, q ∈ S.pairs → ∀ x, q.partner x < N := fun hq x =>
+    h.partner_lt hS hq x
   have h₁ := h.fixConst hB (hpart hpr p) (pr.partnerBias p)
   have hB₁ := bounded_fixConst hB (pr.partner p) (pr.partnerBias p)
   unfold pAndOnPairStep Cslib.Circuits.Boolean.AffineDisperser4n.State.andOnPairStep
@@ -376,9 +373,8 @@ theorem pAndOnPair_eq (h : Rep N E P S) (hS : S.Valid f) {G : ℕ} (hG : G ∈ S
               | none => Hr) P
         | [] => P
       | none => P := by
-  have hpart : ∀ {q : ZeroPair}, q ∈ S.pairs → ∀ x, q.partner x < N := fun hq x => by
-    obtain ⟨h₁, h₂⟩ := h.pairs_lt hS hq
-    unfold ZeroPair.partner; split_ifs <;> assumption
+  have hpart : ∀ {q : ZeroPair}, q ∈ S.pairs → ∀ x, q.partner x < N := fun hq x =>
+    h.partner_lt hS hq x
   unfold pAndOnPair
   simp only [h.pFindPair_eq, h.gateRow G hG, rowOtherArg_rowOf, rowFixArg_rowOf,
     h.pFindReader_eq]

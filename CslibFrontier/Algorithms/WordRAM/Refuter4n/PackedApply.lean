@@ -8,7 +8,9 @@ module
 -- upstream: candidate
 
 public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedCases
--- `import all` for the bodies of `ChoiceSpec` and `NoDeletion`, which are not exposed.
+-- `import all` for the bodies of `ChoiceSpec` and `NoDeletion`, which are not exposed, and for the
+-- private search lemmas of `RefuterProofs` (`find?_sort_eq_some`, `findD4_eq_some`,
+-- `exists_find_reader_gate`, `findAndOnPair_eq_none`, ...), used here as they are.
 import all CslibFrontier.Computability.Circuit.Boolean.AffineDisperser4n.RefuterProofs
 
 /-!
@@ -60,46 +62,6 @@ variable {n : ℕ}
   | .swapAuxIn G => pSwapAuxIn N E G P
   | .pairCreation G => pPairCreation N G P
 
-/-! ### Searches of `chooseStep?` -/
-
-private theorem find?_sort_some {s : Finset ℕ} {p : ℕ → Bool} {x : ℕ}
-    (h : (s.sort (· ≤ ·)).find? p = some x) : x ∈ s ∧ p x = true :=
-  ⟨(Finset.mem_sort _).1 (List.mem_of_find?_eq_some h), List.find?_some h⟩
-
-private theorem find?_sort_none {s : Finset ℕ} {p : ℕ → Bool}
-    (h : (s.sort (· ≤ ·)).find? p = none) {x : ℕ} (hx : x ∈ s) : p x = false := by
-  simpa using List.find?_eq_none.1 h x ((Finset.mem_sort _).2 hx)
-
-private theorem findSome?_sort_none {α : Type*} {s : Finset ℕ} {g : ℕ → Option α}
-    (h : (s.sort (· ≤ ·)).findSome? g = none) {x : ℕ} (hx : x ∈ s) : g x = none :=
-  List.findSome?_eq_none_iff.1 h x ((Finset.mem_sort _).2 hx)
-
-private theorem mem_params_of_findD4 {S : State n} {x e : ℕ} (h : findD4 S = some (x, e)) :
-    x ∈ S.params := by
-  obtain ⟨x', hx', hg⟩ := List.exists_of_findSome?_eq_some h
-  split_ifs at hg
-  obtain ⟨e', -, he'⟩ := List.exists_of_findSome?_eq_some hg
-  split_ifs at he'
-  obtain ⟨rfl, -⟩ := Prod.mk.inj (Option.some.inj he')
-  exact (State.mem_unpaired.1 ((Finset.mem_sort _).1 hx')).1
-
-private theorem not_degeneratePair {S : State n} {f : BooleanFunction n} (hS : S.Valid f)
-    (h : findDegeneratePair S = none) : ¬ S.DegeneratePair := fun ⟨p, hp, hd⟩ => by
-  have := find?_sort_none h (hS.mem_params_of_paired hp)
-  simp [hp, hd] at this
-
-private theorem not_partnersShareChild {S : State n} {f : BooleanFunction n} (hS : S.Valid f)
-    (h : findPartnersShareChild S = none) : ¬ S.PartnersShareChild := fun ⟨pr, hpr, hsh⟩ => by
-  have := find?_sort_none h (hS.pair_mem pr hpr).1
-  simp only [decide_eq_false_iff_not] at this
-  exact this ⟨pr, hpr, rfl, hsh⟩
-
-private theorem elim_of_mem_children {S : State n} {p : ℕ} {c : ℕ ⊕ ℕ}
-    (hc : c ∈ S.children p) : c.elim (· ∈ S.gates) (· ∈ S.eqns) := by
-  rcases c with J | e
-  · exact ((inl_mem_children _).1 hc).1
-  · exact ((inr_mem_children _).1 hc).1
-
 /-! ### Pairs -/
 
 /-- Members `p` and `pr.partner p` of a pair with a common child share a child. -/
@@ -132,37 +94,7 @@ private theorem reads_cases {g : Gate} {p w x : ℕ}
   · exact .inr (Arg.node.inj (hx.symm.trans hl))
   · exact .inl (Arg.node.inj (hx.symm.trans hr))
 
-/-! ### The reader of a gate -/
-
-private theorem exists_reader {S : State n} {f : BooleanFunction n} (hS : S.Valid f) {u G : ℕ}
-    (hG : G ∈ S.gates) (hout : S.out.arg = .node u) (hD2 : findD2 S = none) (huG : u ≠ G) :
-    ∃ K, (S.gates.sort (· ≤ ·)).find? (fun K => decide (K ≠ G ∧ (S.gate K).Reads G)) = some K ∧
-      K ∈ S.gates ∧ K ≠ G ∧ (S.gate K).Reads G := by
-  have h2 := find?_sort_none hD2 hG
-  obtain ⟨K₀, hK₀, hK₀r⟩ : ∃ K ∈ S.gates, (S.gate K).Reads G := by
-    by_contra hno
-    have hno' : ∀ K ∈ S.gates, ¬ (S.gate K).Reads G := fun K hK hr => hno ⟨K, hK, hr⟩
-    have hout' : S.out.arg ≠ .node G := fun he => huG (Arg.node.inj (hout.symm.trans he))
-    exact absurd h2 (by rw [decide_eq_false_iff_not, not_not]; exact ⟨hno', hout'⟩)
-  have hK₀G : K₀ ≠ G := fun he => hS.not_reads_self hK₀ (he ▸ hK₀r)
-  rcases hfK : (S.gates.sort (· ≤ ·)).find? (fun K => decide (K ≠ G ∧ (S.gate K).Reads G)) with
-    _ | K
-  · have := find?_sort_none hfK hK₀
-    simp [hK₀G, hK₀r] at this
-  · obtain ⟨hK, hd⟩ := find?_sort_some hfK
-    simp only [decide_eq_true_eq] at hd
-    exact ⟨K, rfl, hK, hd.1, hd.2⟩
-
 /-! ### Pair creation -/
-
-private theorem args_of_not_degenerate {g : Gate} (hg : ¬ g.Degenerate) :
-    ∃ u v, g.left = .node u ∧ g.right = .node v ∧ u ≠ v := by
-  obtain ⟨hl, hr, hne⟩ := by simpa only [Gate.Degenerate, not_or, not_exists] using hg
-  rcases hgl : g.left with c | u
-  · exact absurd hgl (hl c)
-  rcases hgr : g.right with c | v
-  · exact absurd hgr (hr c)
-  exact ⟨u, v, rfl, rfl, fun he => hne (hgl.trans (he ▸ hgr.symm))⟩
 
 /-- In pair creation, the first argument of the minimal gate is the first member of no pair. -/
 private theorem fresh_pairCreation {S : State n} {f : BooleanFunction n} (hS : S.Valid f)
@@ -172,12 +104,7 @@ private theorem fresh_pairCreation {S : State n} {f : BooleanFunction n} (hS : S
   obtain ⟨hD1, -, -, -, hMov⟩ := hN
   obtain ⟨hG, hmin⟩ := State.Valid.minGate_reads hS hne
   set G := S.gates.min' hne with hGdef
-  have hnd : ¬ (S.gate G).Degenerate := fun hd => by
-    have := find?_sort_none hD1 hG
-    simp [(isDegenerate_iff _).2 hd] at this
-  obtain ⟨t₁, t₂, hl, hr, htne⟩ := args_of_not_degenerate hnd
-  intro t hlt pr hpr hfst
-  have ht : t = t₁ := Arg.node.inj (hlt.symm.trans hl)
+  obtain ⟨t₁, t₂, hl, hr, htne⟩ := exists_args_of_not_degenerate (findD1_eq_none hD1 G hG)
   have hnotaux : t₁ ∉ S.aux ∧ t₂ ∉ S.aux := by
     unfold State.auxIn at haux
     rw [hl, hr] at haux
@@ -189,12 +116,12 @@ private theorem fresh_pairCreation {S : State n} {f : BooleanFunction n} (hS : S
   have ht₁ := hpar t₁ (Or.inl hl) hnotaux.1
   have ht₂ := hpar t₂ (Or.inr hr) hnotaux.2
   have hna : ¬ IsAffineOp (S.gate G).op := fun haff => by
-    have := find?_sort_none hMov hG
-    simp [haff, hl, hr, isGate, hmin t₁ (Or.inl hl), hmin t₂ (Or.inr hr)] at this
-  have := findSome?_sort_none hAOP hG
-  simp only [hna, not_false_eq_true, ite_true, hl, hr, htne, ht₁, ht₂, ne_eq, and_self] at this
-  split_ifs at this with h1
-  exact h1 ⟨pr, hpr, Or.inl (hfst.trans ht)⟩
+    rcases findMovable_eq_none hMov G hG haff with h | h
+    · simp [hl, isGate, hmin t₁ (Or.inl hl)] at h
+    · simp [hr, isGate, hmin t₂ (Or.inr hr)] at h
+  intro t hlt pr hpr hfst
+  exact (findAndOnPair_eq_none hAOP hG hna hl hr htne ht₁ ht₂).1
+    ⟨pr, hpr, Or.inl (hfst.trans (Arg.node.inj (hlt.symm.trans hl)))⟩
 
 namespace Rep
 
@@ -207,8 +134,8 @@ private theorem applyStep_andOnPair (h : Rep N E P S) (hS : S.Valid f) {u G p : 
     (hPSC : findPartnersShareChild S = none) (hAOP : findAndOnPair S = some (G, p))
     (huG : u ≠ G) :
     Rep N E (pAndOnPair N E G p P) (applyStep S (.andOnPair G p)) := by
-  have hndeg := not_degeneratePair hS hDP
-  have hnsh := not_partnersShareChild hS hPSC
+  have hndeg := findDegeneratePair_eq_none hS hDP
+  have hnsh := findPartnersShareChild_eq_none hS hPSC
   obtain ⟨hG, -, -, w, hpw, -, hwpar, hGp, hGw, hw⟩ := findAndOnPair_eq_some hAOP
   have hargs := Gate.args_of_reads hpw hGp hGw
   have hwN : w < N := Finset.mem_range.1 (h.names (by simp [nameSet, hwpar]))
@@ -230,10 +157,11 @@ private theorem applyStep_andOnPair (h : Rep N E P S) (hS : S.Valid f) {u G p : 
     (by rw [← eq_partner hprp hcw (Ne.symm hpw)]; exact hGch hGw))
   have hHrG : Hr ≠ .inl G := fun he => hnsh (share hprm hprp hrp (hGch hGp) (he ▸ hHr))
   refine h.andOnPairStep hS hG hprm hwN (fun q hq => (findPair_spec hq).1) _ _
-    (elim_of_mem_children hHr) hHrG ?_
+    (elim_mem_of_mem_children hHr) hHrG ?_
   intro q hq hb
   obtain ⟨hqm, hqw⟩ := findPair_spec hq
-  obtain ⟨K, hfK, hKm, hKG, hKr⟩ := exists_reader hS hG hout hN.2.1 huG
+  obtain ⟨K, hfK, hKm, hKr⟩ := exists_find_reader_gate hS hG hout hN.2.1 huG
+  have hKG : K ≠ G := (of_decide_eq_true (find?_sort_eq_some hfK).2).1
   rw [hfK, Option.getD_some]
   refine ⟨hKm, hKG, fun hHK => ?_⟩
   rw [hq]
@@ -249,7 +177,7 @@ private theorem applyStep_andOnPair (h : Rep N E P S) (hS : S.Valid f) {u G p : 
     have hcx : q.Contains x := he ▸ q.contains_partner hqw
     obtain rfl := hS.pair_unique hprm hqm hx hcx
     exact hnotw hqw
-  refine ⟨elim_of_mem_children hH', fun he => ?_, fun he => ?_⟩
+  refine ⟨elim_mem_of_mem_children hH', fun he => ?_, fun he => ?_⟩
   · have hGr : (S.gate G).Reads (q.partner w) := ((inl_mem_children _).1 (he ▸ hH')).2
     have hwq : q.partner w ≠ w := q.partner_ne (hS.pair_mem q hqm).2.2 hqw
     exact (reads_cases hargs hGr).elim (hq_ne p hprp) hwq
@@ -273,20 +201,25 @@ theorem pApplyStep (h : Rep N E P S) (hS : S.Valid f) {c : StepChoice}
     Finset.mem_range.1 (h.names (by simp [nameSet, hi]))
   obtain ⟨u, hout, hu, hspec⟩ := chooseStep?_spec hc
   cases c with
-  | deleteConstantGate J => exact h.applyStep_deleteConstantGate hB (find?_sort_some hspec).1
-  | deleteDeadGate J => exact h.applyStep_deleteDeadGate hB (find?_sort_some hspec.2).1
-  | deleteShortEqn e => exact h.applyStep_deleteShortEqn hB (find?_sort_some hspec.2.2).1
+  | deleteConstantGate J => exact h.applyStep_deleteConstantGate hB (findD1_eq_some hspec).1
+  | deleteDeadGate J => exact h.applyStep_deleteDeadGate hB (findD2_eq_some hspec.2).1
+  | deleteShortEqn e => exact h.applyStep_deleteShortEqn hB (findD3_eq_some hspec.2.2).1
   | deleteUnitParam x e =>
-    exact h.applyStep_deleteUnitParam hS (hpar (mem_params_of_findD4 hspec.2.2.2)) e
-  | moveAffine J => exact h.applyStep_moveAffine (find?_sort_some hspec.2.2.2.2).1 hE
-  | degeneratePair p => exact h.applyStep_degeneratePair hS (hpar (find?_sort_some hspec.2).1)
+    exact h.applyStep_deleteUnitParam hS
+      (hpar (State.mem_unpaired.1 (findD4_eq_some hspec.2.2.2).1).1) e
+  | moveAffine J => exact h.applyStep_moveAffine (findMovable_eq_some hspec.2.2.2.2).1 hE
+  | degeneratePair p =>
+    exact h.applyStep_degeneratePair hS
+      (hpar (hS.mem_params_of_paired (findDegeneratePair_eq_some hspec.2).1))
   | partnersShareChild p =>
-    exact h.applyStep_partnersShareChild hS (hpar (find?_sort_some hspec.2.2).1)
+    obtain ⟨pr, hpr, rfl, -⟩ := findPartnersShareChild_eq_some hspec.2.2
+    exact h.applyStep_partnersShareChild hS (hpar (hS.pair_mem pr hpr).1)
   | pairInSystem p =>
     obtain ⟨-, hDP, hPSC, hPIS⟩ := hspec
-    have hp := (find?_sort_some hPIS).1
-    exact h.applyStep_pairInSystem hS (not_degeneratePair hS hDP) (not_partnersShareChild hS hPSC)
-      (hpar hp) fun hr => hu (Arg.node.inj (hout.symm.trans hr) ▸ hp)
+    have hp := hS.mem_params_of_paired (findPairInSystem_eq_some hPIS).1
+    exact h.applyStep_pairInSystem hS (findDegeneratePair_eq_none hS hDP)
+      (findPartnersShareChild_eq_none hS hPSC) (hpar hp)
+      fun hr => hu (Arg.node.inj (hout.symm.trans hr) ▸ hp)
   | andOnPair G p =>
     obtain ⟨hN, hDP, hPSC, -, hAOP, huG⟩ := hspec
     exact h.applyStep_andOnPair hS hout hN hDP hPSC hAOP huG
