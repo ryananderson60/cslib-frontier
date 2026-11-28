@@ -6728,6 +6728,7 @@ public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedOps
 public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedStep
 public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedAffineRep
 public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedCases
+public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedApply
 public import CslibFrontier.Foundations.LinearAlgebra.Matrix.Order
 public import CslibFrontier.Algorithms.WordRAM.EdmondsKarp.BfsSemantics
 public import CslibFrontier.Algorithms.WordRAM.MatrixMultiplication.Schonhage.Pruned.ProgressEmpty

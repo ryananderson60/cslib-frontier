@@ -7,8 +7,8 @@ Authors: Ryan Anderson
 module
 -- upstream: local-only (test)
 
-public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedCases
-public meta import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedCases
+public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedApply
+public meta import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedApply
 
 /-!
 # Tests for the packed operations and steps of the `4n - 9d` refuter
@@ -22,7 +22,8 @@ dropping, the reparameterisation and pair creation on the moved state; the searc
 `pGetChildren` and `pFindReader` are compared with `findPair`, `getChildren` and the reader search,
 and restriction is checked on a state with a pair. The packed oracle `pEvaluateAux`,
 `pFindAffineRep` is compared with `evaluateAux` and `findAffineRep` on the moved state, and
-`rowPhi` of Case 3 with the truth table.
+`rowPhi` of Case 3 with the truth table; the packed step `pApplyStep` is run on the first step of
+both fixtures.
 -/
 
 set_option linter.hashCommand false
@@ -433,5 +434,18 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : Boo
 #guard rowOtherArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 1 == 0
 #guard rowFixArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 1 == fixArg ⟨(· && ·), .node 0, .node 1⟩ 1
 #guard rowFixArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 1 == (false, false)
+
+/-- The packed step (module client of `Rep.pApplyStep`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {c : StepChoice} (hc : chooseStep? S = some c) (hE : S.freshEqn < E) :
+    Rep N E (pApplyStep N E P c) (applyStep S c) :=
+  h.pApplyStep hS hc hE
+
+/-! The packed step on the first refuter step of both fixtures. -/
+
+#guard (pApplyStep 4 22 degP (.deleteConstantGate 3)).gates == maskOf degS₁.gates
+#guard (pApplyStep 4 22 degP (.deleteConstantGate 3)).out == litCode degS₁.out
+#guard (pApplyStep 4 22 xorP (.moveAffine 3)).eqnRows.getD 0 0 == eqnWord 4 (xorS₁.eqn 0) true
+#guard (pApplyStep 4 22 xorP (.moveAffine 3)).aux == maskOf xorS₁.aux
 
 end CslibFrontierTests.Refuter4nPackedOps
