@@ -17,7 +17,9 @@ public meta import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedStep
 there, and `restrictAvoid` on fixing a parameter of `xor3Circuit`; the
 touched masks, gate rows, equation words and output are compared with the encodings of the
 state operations, and the rows of the parameter map by evaluation. The packed steps
-(`pDeleteConstraint`, `pFreshEqn`) are checked on masks, the output and the alive flags.
+(`pDeleteConstraint`, `pFreshEqn`) are checked on masks, the output and the alive flags, and
+dropping, the reparameterisation and pair creation on the moved state; the searches `pFindPair`,
+`pGetChildren` and `pFindReader` are compared with `findPair`, `getChildren` and the reader search.
 -/
 
 set_option linter.hashCommand false
@@ -149,11 +151,58 @@ def xorP₂ : PackedState := pDeleteConstraint 4 xorP₁ (.inr 0)
 #guard xorP₂.out == litCode xorS₂.out
 #guard (List.range 22).all fun e => (xorP₂.eqnRows.getD e 0).testBit 5 == decide (e ∈ xorS₂.eqns)
 
+/-! Dropping equations, the affine reparameterisation and pair creation, after moving the XOR
+gate of `xor3Circuit` (equation `0`: `x₀ + x₁ + x₃ = 0`, auxiliary variable `3`):
+
+* `dropTrivialEqn 0` and `dropEqn 0 3` clear the word of equation `0` (and bit `3` of the
+  auxiliary mask);
+* `swap 0 3 false {0, 1}` exchanges `x₀` and `x₃ = x₀ + x₁`: the masks are exchanged and the
+  rows of the parameter map evaluate as `phi`;
+* `addPair` appends the record `(2 · 0 + 0, 2 · 1 + 1) = (0, 3)`. -/
+
+#guard (xorP₁.dropTrivialEqn 0).eqnRows.getD 0 0 == 0
+#guard (List.range 22).all fun e =>
+  ((xorP₁.dropTrivialEqn 0).eqnRows.getD e 0).testBit 5 ==
+    decide (e ∈ (xorS₁.dropTrivialEqn 0).eqns)
+#guard (xorP₁.dropEqn 0 3).aux == maskOf (xorS₁.dropEqn 0 3).aux
+#guard (xorP₁.dropEqn 0 3).aux == 0
+#guard (xorP₁.dropEqn 0 3).eqnRows.getD 0 0 == 0
+
+/-- The swap of `x₀` and `x₃ = x₀ + x₁` after moving the XOR gate. -/
+def xorS₃ : State 3 := xorS₁.swap 0 3 false {0, 1}
+
+/-- The packed swap. -/
+def xorP₃ : PackedState :=
+  xorP₁.swap 0 3 (Cslib.Algorithms.WordRAM.XORSATDense.rowWord
+    (toDenseRow 4 (symmDiff (({0, 1} : Finset ℕ).erase 0) {3}) false))
+
+#guard xorP₃.params == maskOf xorS₃.params
+#guard xorP₃.aux == maskOf xorS₃.aux
+#guard (List.range 16).all fun v =>
+  let val : ℕ → Bool := fun j => v.testBit j
+  (List.finRange 3).all fun i => rowEval 4 (xorP₃.phiRows.getD i 0) val == xorS₃.phi val i
+
+#guard pairCode ⟨0, false, 1, true⟩ == (0, 3)
+#guard (xorP.addPair (pairCode ⟨0, false, 1, true⟩)).pairs == [(0, 3)]
+
+/-! Searches: `pFindPair`, `pGetChildren` and `pFindReader` agree with `findPair`, `getChildren`
+and the reader search of `applyStep` on the fixtures (the children of `x₀` in `xor3Circuit` are
+the gate `3`; the gate `3` of `degCircuit` reads the gate `2`). -/
+
+#guard pFindPair 4 0 xorP == findPair (initialState xor3Circuit) 0
+#guard (pFindPair 4 0 xorP).isNone
+#guard pGetChildren 4 22 0 xorP == getChildren (initialState xor3Circuit) 0
+#guard pGetChildren 4 22 0 xorP == [.inl 3]
+#guard pGetChildren 4 22 0 xorP₁ == getChildren xorS₁ 0
+#guard pFindReader 4 2 degP == ((initialState degCircuit).gates.sort (· ≤ ·)).find?
+  (fun K => decide (K ≠ 2 ∧ ((initialState degCircuit).gate K).Reads 2))
+#guard pFindReader 4 2 degP == some 3
+
 /-- Packed gate deletion represents gate deletion (module client of `Rep.deleteGate`). -/
 example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
     (hS : S.Valid f) {J : ℕ} (hJ : J < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
     Rep N E (P.deleteGate N J (argCode ℓ.arg) ℓ.neg.toNat) (S.deleteGate J ℓ) :=
-  h.deleteGate hS hJ hℓ
+  h.deleteGate (h.bounded hS) hJ hℓ
 
 /-- Packed moving of an affine gate represents `State.moveAffine` (module client of
 `Rep.moveAffine`). -/
@@ -166,14 +215,14 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {J : ℕ
 example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
     (hS : S.Valid f) {w : ℕ} (hw : w < N) (b : Bool) :
     Rep N E (P.restrictAvoid N w b.toNat 0) (S.fixConst w b) :=
-  h.fixConst hS hw b
+  h.fixConst (h.bounded hS) hw b
 
 /-- The packed `(D3)` step represents `applyStep` (module client of
 `Rep.applyStep_deleteShortEqn`). -/
 example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
     (hS : S.Valid f) {e : ℕ} (he : e ∈ S.eqns) :
     Rep N E (pDeleteConstraint N P (.inr e)) (applyStep S (.deleteShortEqn e)) :=
-  h.applyStep_deleteShortEqn hS he
+  h.applyStep_deleteShortEqn (h.bounded hS) he
 
 /-- The packed moving step represents `applyStep` (module client of
 `Rep.applyStep_moveAffine`). -/
@@ -181,5 +230,38 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {J : ℕ
     (hJ : J ∈ S.gates) (he : S.freshEqn < E) :
     Rep N E (P.moveAffine N J (pFreshEqn N E P)) (applyStep S (.moveAffine J)) :=
   h.applyStep_moveAffine hJ he
+
+/-- Packed dropping of an equation (module client of `Rep.dropEqn`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (e v : ℕ) :
+    Rep N E (P.dropEqn e v) (S.dropEqn e v) :=
+  h.dropEqn e v
+
+/-- Packed dropping of a trivial equation (module client of `Rep.dropTrivialEqn`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (e : ℕ) :
+    Rep N E (P.dropTrivialEqn e) (S.dropTrivialEqn e) :=
+  h.dropTrivialEqn e
+
+/-- The packed affine reparameterisation (module client of `Rep.swap`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {x Q : ℕ} (hx : x < N)
+    (hQ : Q < N) {T : Finset ℕ} (hT : ∀ j ∈ T, j < N) (c : Bool) :
+    Rep N E (P.swap x Q (Cslib.Algorithms.WordRAM.XORSATDense.rowWord
+      (toDenseRow N (symmDiff (T.erase x) {Q}) c))) (S.swap x Q c T) :=
+  h.swap hx hQ hT c
+
+/-- Packed pair creation of a new pair (module client of `Rep.addPair`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {pr : ZeroPair}
+    (hpr : pr ∉ S.pairs) : Rep N E (P.addPair (pairCode pr)) (S.addPair pr) :=
+  h.addPair hpr
+
+/-- The packed Case 2 (module client of `Rep.applyStep_degeneratePair`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {p : ℕ} (hp : p < N) :
+    Rep N E (pDegeneratePair N E p P) (applyStep S (.degeneratePair p)) :=
+  h.applyStep_degeneratePair hS hp
+
+/-- The packed pair search is `findPair` (module client of `Rep.pFindPair_eq`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (p : ℕ) :
+    pFindPair N p P = findPair S p :=
+  h.pFindPair_eq p
 
 end CslibFrontierTests.Refuter4nPackedOps

@@ -44,6 +44,7 @@ packed rows. A literal `ℓ` enters as its argument code `argCode ℓ.arg` and n
 * `Cslib.Algorithms.WordRAM.Refuter4n.argWord`, `litWordOf`, `affWord`: rows of literals and of
   moved gates.
 * `Cslib.Algorithms.WordRAM.Refuter4n.pairAvoids`: the pair records avoiding a name.
+* `Cslib.Algorithms.WordRAM.Refuter4n.Bounded`: names read by a state are below `N`.
 * `Cslib.Algorithms.WordRAM.Refuter4n.PackedState.subst`, `PackedState.deleteGate`,
   `PackedState.restrictAvoid`, `PackedState.deleteEqn`, `PackedState.dropEqn`,
   `PackedState.dropTrivialEqn`, `PackedState.moveAffine`, `PackedState.swap`,
@@ -51,7 +52,8 @@ packed rows. A literal `ℓ` enters as its argument code `argCode ℓ.arg` and n
 
 ## Main results
 
-* `Cslib.Algorithms.WordRAM.Refuter4n.testBit_eqnWord`: the bits of an equation word.
+* `Cslib.Algorithms.WordRAM.Refuter4n.testBit_eqnWord`, `argCode_eq_node`: the bits of an
+  equation word, and the codes of nodes.
 * `Cslib.Algorithms.WordRAM.Refuter4n.maskOf_erase`, `maskOf_insert`, `permTT_ttOf`,
   `substRow_rowOf`, `substOut_litCode`, `litWordOf_eq`, `substWord_eqnWord`, `affWord_rowOf`: the
   word operations are the operations on gates, literals and equations.
@@ -61,8 +63,12 @@ packed rows. A literal `ℓ` enters as its argument code `argCode ℓ.arg` and n
   `Rep.deleteEqn`, `Rep.dropEqn`, `Rep.dropTrivialEqn`, `Rep.moveAffine`, `Rep.swap`,
   `Rep.addPair`: each packed operation represents its state operation. The hypotheses are names
   below `N` (and `E` for a new equation name), the moved gate for `Rep.moveAffine`, for
-  `Rep.addPair` a new pair, and, for the operations that reroute a name, a valid state (whose
-  equation terms are below `N`, `Rep.terms_lt`).
+  `Rep.addPair` a new pair, and, for the operations that reroute a name, a bounded state
+  (`Bounded`: the names read by equations, gates and the output are below `N`).
+* `Cslib.Algorithms.WordRAM.Refuter4n.Rep.bounded`, `Bounded.deleteGate`, `Bounded.restrict`,
+  `Bounded.deleteEqn`, `Bounded.dropEqn`, `Bounded.dropTrivialEqn`, `Bounded.swap`,
+  `Bounded.addPair`, `Bounded.moveAffine`: valid represented states are bounded, and the state
+  operations preserve boundedness, so a step can chain operations.
 -/
 
 public section
@@ -150,7 +156,8 @@ theorem permTT_lt (t m : ℕ) : permTT t m < 16 := by
   ⟨permTT r.tt (2 * negBit v ln r.left + negBit v ln r.right), substCode v la r.left,
     substCode v la r.right⟩
 
-private theorem argCode_eq_node {a : Arg} {v : ℕ} : argCode a = v + 2 ↔ a = .node v := by
+/-- The code `v + 2` is the argument `node v`. -/
+theorem argCode_eq_node {a : Arg} {v : ℕ} : argCode a = v + 2 ↔ a = .node v := by
   cases a with
   | const b => cases b <;> simp [argCode]
   | node i => simp [argCode]
@@ -471,9 +478,119 @@ private theorem eqnTable_set {N E : ℕ} {L : List ℕ} {s : Finset ℕ} (hlen :
     · exact hlt x hx
     · exact Nat.two_pow_pos _
 
+/-! ### Bounded states -/
+
+/-- The names read by the equations, the gates and the output of `S` are below `N`. A valid
+represented state is bounded (`Rep.bounded`), and every state operation preserves it. -/
+structure Bounded (N : ℕ) (S : State n) : Prop where
+  /-- Terms of equations are below `N`. -/
+  terms : ∀ e ∈ S.eqns, ∀ j ∈ (S.eqn e).terms, j < N
+  /-- Names read by gates are below `N`. -/
+  reads : ∀ J ∈ S.gates, ∀ i, (S.gate J).Reads i → i < N
+  /-- The name read by the output is below `N`. -/
+  out : ∀ i, S.out.Reads i → i < N
+
+namespace Bounded
+
+variable {N : ℕ} {S : State n}
+
+private theorem of_subst (hB : Bounded N S) {S' : State n} {v : ℕ} {ℓ : Lit}
+    (hℓ : ∀ y, ℓ.Reads y → y < N) (hg : S'.gates ⊆ S.gates) (he : S'.eqns ⊆ S.eqns)
+    (hgate : ∀ K, S'.gate K = (S.gate K).subst v ℓ)
+    (heqn : ∀ e, S'.eqn e = (S.eqn e).subst v ℓ) (hout : S'.out = S.out.subst v ℓ) :
+    Bounded N S' where
+  terms e he' j hj := by
+    rw [heqn] at hj
+    rcases Equation.mem_of_mem_subst hj with hj | ⟨-, hj⟩
+    · exact hB.terms e (he he') j hj
+    · exact hℓ j hj
+  reads K hK i hi := by
+    rw [hgate] at hi
+    rcases Gate.reads_of_reads_subst hi with hi | ⟨-, hi⟩
+    · exact hB.reads K (hg hK) i hi
+    · exact hℓ i hi
+  out i hi := by
+    rw [hout] at hi
+    rcases Lit.reads_of_reads_subst hi with hi | ⟨-, hi⟩
+    · exact hB.out i hi
+    · exact hℓ i hi
+
+private theorem of_le (hB : Bounded N S) {S' : State n} (hg : S'.gates ⊆ S.gates)
+    (he : S'.eqns ⊆ S.eqns) (hgate : S'.gate = S.gate) (heqn : S'.eqn = S.eqn)
+    (hout : S'.out = S.out) : Bounded N S' where
+  terms e he' j hj := by
+    rw [heqn] at hj
+    exact hB.terms e (he he') j hj
+  reads K hK i hi := by
+    rw [hgate] at hi
+    exact hB.reads K (hg hK) i hi
+  out i hi := by
+    rw [hout] at hi
+    exact hB.out i hi
+
+/-- Deleting a gate preserves boundedness. -/
+theorem deleteGate (hB : Bounded N S) (J : ℕ) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
+    Bounded N (S.deleteGate J ℓ) :=
+  hB.of_subst hℓ (Finset.erase_subset _ _) (Finset.Subset.refl _) (fun _ => rfl) (fun _ => rfl)
+    rfl
+
+/-- Restriction preserves boundedness. -/
+theorem restrict (hB : Bounded N S) (x : ℕ) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N)
+    (Q : Finset ZeroPair) : Bounded N (S.restrict x ℓ Q) :=
+  hB.of_subst hℓ (Finset.Subset.refl _) (Finset.Subset.refl _) (fun _ => rfl) (fun _ => rfl) rfl
+
+/-- Deleting an equation preserves boundedness. -/
+theorem deleteEqn (hB : Bounded N S) (e v : ℕ) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
+    Bounded N (S.deleteEqn e v ℓ) :=
+  hB.of_subst hℓ (Finset.Subset.refl _) (Finset.erase_subset _ _) (fun _ => rfl) (fun _ => rfl)
+    rfl
+
+/-- Dropping an equation preserves boundedness. -/
+theorem dropEqn (hB : Bounded N S) (e v : ℕ) : Bounded N (S.dropEqn e v) :=
+  hB.of_le (Finset.Subset.refl _) (Finset.erase_subset _ _) rfl rfl rfl
+
+/-- Dropping a trivial equation preserves boundedness. -/
+theorem dropTrivialEqn (hB : Bounded N S) (e : ℕ) : Bounded N (S.dropTrivialEqn e) :=
+  hB.of_le (Finset.Subset.refl _) (Finset.erase_subset _ _) rfl rfl rfl
+
+/-- The affine reparameterisation preserves boundedness. -/
+theorem swap (hB : Bounded N S) (x Q : ℕ) (c : Bool) (T : Finset ℕ) :
+    Bounded N (S.swap x Q c T) :=
+  hB.of_le (Finset.Subset.refl _) (Finset.Subset.refl _) rfl rfl rfl
+
+/-- Pair creation preserves boundedness. -/
+theorem addPair (hB : Bounded N S) (pr : ZeroPair) : Bounded N (S.addPair pr) :=
+  hB.of_le (Finset.Subset.refl _) (Finset.Subset.refl _) rfl rfl rfl
+
+/-- Moving a gate named below `N` into the affine system preserves boundedness. -/
+theorem moveAffine (hB : Bounded N S) {J : ℕ} (hJ : J ∈ S.gates) (hJN : J < N) (e : ℕ) :
+    Bounded N (S.moveAffine J e) where
+  terms e' he' j hj := by
+    change j ∈ (Function.update S.eqn e (affEqn (S.gate J) J) e').terms at hj
+    by_cases h' : e' = e
+    · subst h'
+      rw [Function.update_self] at hj
+      rcases mem_addArg hj with hj | hj
+      · rcases mem_addArg hj with hj | hj
+        · rw [Finset.mem_singleton.1 hj]; exact hJN
+        · exact hB.reads J hJ j (Or.inl hj)
+      · exact hB.reads J hJ j (Or.inr hj)
+    · rw [Function.update_of_ne h'] at hj
+      exact hB.terms e' ((Finset.mem_insert.1 he').resolve_left h') j hj
+  reads K hK i hi := hB.reads K (Finset.mem_of_mem_erase hK) i hi
+  out := hB.out
+
+end Bounded
+
 namespace Rep
 
 variable {N E : ℕ} {P : PackedState} {S : State n}
+
+/-- A valid represented state is bounded. -/
+theorem bounded (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f) : Bounded N S where
+  terms _ he _ hj := h.terms_lt hS he hj
+  reads J hJ i hi := Finset.mem_range.1 (h.names (hS.wf.reads_live J hJ i hi))
+  out _ hi := h.out_lt hS hi
 
 /-- A copy of the private `Rep.lt_of_mem_nameSet` of `PackedState`; it can go once that helper is
 public. -/
@@ -485,7 +602,7 @@ private theorem lt_of_mem (h : Rep N E P S) {i : ℕ} (hi : i ∈ nameSet S) : i
 private def substState (S : State n) (v : ℕ) (ℓ : Lit) : State n :=
   { S with toSemiCircuit := S.toSemiCircuit.subst v ℓ }
 
-private theorem subst (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f) {v : ℕ}
+private theorem subst (h : Rep N E P S) (hB : Bounded N S) {v : ℕ}
     (hv : v < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
     Rep N E (P.subst N v (argCode ℓ.arg) ℓ.neg.toNat) (substState S v ℓ) := by
   have hlw : litWordOf N (argCode ℓ.arg) ℓ.neg.toNat = litWord N ℓ := litWordOf_eq hℓ
@@ -526,7 +643,7 @@ private theorem subst (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f)
       eqnRow := fun e he => by
         change (P.eqnRows.map (substWord v (litWordOf N (argCode ℓ.arg) ℓ.neg.toNat))).getD e 0 =
           eqnWord N ((S.eqn e).subst v ℓ) true
-        rw [heD, h.eqnRow e he, hlw, substWord_eqnWord hv hℓ fun j hj => h.terms_lt hS he hj]
+        rw [heD, h.eqnRow e he, hlw, substWord_eqnWord hv hℓ (hB.terms e he)]
       eqnRow_alive := fun e he => by
         change ((P.eqnRows.map (substWord v (litWordOf N (argCode ℓ.arg) ℓ.neg.toNat))).getD e
           0).testBit (N + 1) = decide (e ∈ S.eqns)
@@ -544,10 +661,10 @@ private theorem subst (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f)
       phi := ⟨h.phi.length, h.phi.lt, h.phi.eval⟩ }
 
 /-- **Deleting a gate.** `PackedState.deleteGate` represents `State.deleteGate J ℓ`. -/
-theorem deleteGate (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f) {J : ℕ}
+theorem deleteGate (h : Rep N E P S) (hB : Bounded N S) {J : ℕ}
     (hJ : J < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
     Rep N E (P.deleteGate N J (argCode ℓ.arg) ℓ.neg.toNat) (S.deleteGate J ℓ) :=
-  have h' := h.subst hS hJ hℓ
+  have h' := h.subst hB hJ hℓ
   { h' with
     names := (nameSet_subset (S := S) (S' := S.deleteGate J ℓ) (Finset.Subset.refl _)
       (Finset.Subset.refl _) (Finset.erase_subset _ _)).trans h.names
@@ -559,11 +676,11 @@ theorem deleteGate (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f) {J
 
 /-- **Restriction.** `PackedState.restrictAvoid` represents `State.restrict x ℓ (S.pairsAvoid x)`.
 -/
-theorem restrictAvoid (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f) {x : ℕ}
+theorem restrictAvoid (h : Rep N E P S) (hB : Bounded N S) {x : ℕ}
     (hx : x < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
     Rep N E (P.restrictAvoid N x (argCode ℓ.arg) ℓ.neg.toNat)
       (S.restrict x ℓ (S.pairsAvoid x)) :=
-  have h' := h.subst hS hx hℓ
+  have h' := h.subst hB hx hℓ
   { h' with
     names := (nameSet_subset (S := S) (S' := S.restrict x ℓ (S.pairsAvoid x))
       (Finset.erase_subset _ _) (Finset.Subset.refl _) (Finset.Subset.refl _)).trans h.names
@@ -597,15 +714,15 @@ theorem restrictAvoid (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f)
 
 /-- **Fixing a parameter.** `PackedState.restrictAvoid N w b.toNat 0` represents
 `State.fixConst w b`. -/
-theorem fixConst (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f) {w : ℕ}
+theorem fixConst (h : Rep N E P S) (hB : Bounded N S) {w : ℕ}
     (hw : w < N) (b : Bool) : Rep N E (P.restrictAvoid N w b.toNat 0) (S.fixConst w b) :=
-  h.restrictAvoid hS (ℓ := Lit.const b) hw fun y hy => absurd hy (by simp [Lit.Reads, Lit.const])
+  h.restrictAvoid hB (ℓ := Lit.const b) hw fun y hy => absurd hy (by simp [Lit.Reads, Lit.const])
 
 /-- **Deleting an equation.** `PackedState.deleteEqn` represents `State.deleteEqn e v ℓ`. -/
-theorem deleteEqn (h : Rep N E P S) {f : BooleanFunction n} (hS : S.Valid f) (e : ℕ) {v : ℕ}
+theorem deleteEqn (h : Rep N E P S) (hB : Bounded N S) (e : ℕ) {v : ℕ}
     (hv : v < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
     Rep N E (P.deleteEqn N e v (argCode ℓ.arg) ℓ.neg.toNat) (S.deleteEqn e v ℓ) :=
-  have h' := h.subst hS hv hℓ
+  have h' := h.subst hB hv hℓ
   have ht := eqnTable_set h'.eqnRows_length h'.eqnRow_alive h'.eqnRow_lt e
   { h' with
     names := (nameSet_subset (S := S) (S' := S.deleteEqn e v ℓ) (Finset.Subset.refl _)
