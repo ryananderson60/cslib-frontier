@@ -391,6 +391,52 @@ private theorem getElem_rrvFunctions_prefix {t d : ℕ} (hd : 0 < d) :
       rw [List.getElem_append_left (by rw [length_rrvFunctions]; exact lt_of_lt_of_le hi hk)]
       exact ih i hi
 
+/-! Executed, `rrvBuildPrefix` returns a closure whose calls redo the earlier greedy choices,
+and the potential calls the earlier functions of `prev`, which are such closures too, so
+evaluating `rrvFunctions` can take time exponential in `t` and `m`. The versions below store each
+chosen function as a vector, built in one pass, and the compiler uses them through `@[csimp]`. -/
+
+/-- `rrvBuildPrefix` stored as a vector, one greedy choice per coordinate. -/
+private def rrvPrefixVector {t d : ℕ} (hd : 0 < d) (prev : List (Fin t → Fin d)) :
+    (u : ℕ) → u ≤ t → Vector (Fin d) u
+  | 0, _ => #v[]
+  | u + 1, hu =>
+      let chosen := rrvPrefixVector hd prev u (Nat.le_of_succ_le hu)
+      chosen.push (argMinFin d hd fun v =>
+        rrvPotential prev (u + 1) hu (Fin.snoc (α := fun _ => Fin d) (chosen[·]) v))
+
+private theorem getElem_rrvPrefixVector {t d : ℕ} (hd : 0 < d) (prev : List (Fin t → Fin d)) :
+    ∀ (u : ℕ) (hu : u ≤ t), (fun a : Fin u => (rrvPrefixVector hd prev u hu)[a]) =
+      rrvBuildPrefix hd prev u hu
+  | 0, _ => funext fun a => a.elim0
+  | u + 1, hu => by
+      have ih := getElem_rrvPrefixVector hd prev u (Nat.le_of_succ_le hu)
+      funext a
+      simp only [rrvPrefixVector, rrvBuildPrefix, ih]
+      refine Fin.lastCases ?_ (fun a => ?_) a
+      · simp
+      · simp [← ih]
+
+/-- `rrvFunctions` with every function stored as a vector. -/
+private def rrvFunctionsVector (t d : ℕ) (hd : 0 < d) : (m : ℕ) → List (Vector (Fin d) t)
+  | 0 => []
+  | m + 1 =>
+      let prev := rrvFunctionsVector t d hd m
+      prev ++ [rrvPrefixVector hd (prev.map fun v a => v[a]) t le_rfl]
+
+private def rrvFunctionsImpl (t d : ℕ) (hd : 0 < d) (m : ℕ) : List (Fin t → Fin d) :=
+  (rrvFunctionsVector t d hd m).map fun v a => v[a]
+
+@[csimp]
+private theorem rrvFunctions_eq_rrvFunctionsImpl : @rrvFunctions = @rrvFunctionsImpl := by
+  funext t d hd m
+  induction m with
+  | zero => rfl
+  | succ m ih =>
+      simp only [rrvFunctionsImpl] at ih ⊢
+      simp only [rrvFunctions, rrvFunctionsVector, List.map_append, List.map_cons, List.map_nil,
+        ← ih, getElem_rrvPrefixVector]
+
 /-- The graph of `f : Fin t → Fin d` embedded in `Fin (t * d)`. -/
 private def graphBlock {t d : ℕ} (f : Fin t → Fin d) : Finset (Fin (t * d)) :=
   Finset.univ.map ⟨fun u : Fin t => finProdFinEquiv (u, f u),
