@@ -7,8 +7,8 @@ Authors: Ryan Anderson
 module
 -- upstream: local-only (test)
 
-public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedStep
-public meta import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedStep
+public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedCases
+public meta import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedCases
 
 /-!
 # Tests for the packed operations and steps of the `4n - 9d` refuter
@@ -20,7 +20,9 @@ state operations, and the rows of the parameter map by evaluation. The packed st
 (`pDeleteConstraint`, `pFreshEqn`) are checked on masks, the output and the alive flags, and
 dropping, the reparameterisation and pair creation on the moved state; the searches `pFindPair`,
 `pGetChildren` and `pFindReader` are compared with `findPair`, `getChildren` and the reader search,
-and restriction is checked on a state with a pair.
+and restriction is checked on a state with a pair. The packed oracle `pEvaluateAux`,
+`pFindAffineRep` is compared with `evaluateAux` and `findAffineRep` on the moved state, and
+`rowPhi` of Case 3 with the truth table.
 -/
 
 set_option linter.hashCommand false
@@ -31,7 +33,7 @@ namespace CslibFrontierTests.Refuter4nPackedOps
 
 open Cslib Cslib.BitString Cslib.Circuits Cslib.Circuits.Boolean
 open Cslib.Circuits.Boolean.AffineDisperser4n Cslib.Circuits.Boolean.SemiCircuit
-open Cslib.Algorithms.WordRAM.Refuter4n
+open Cslib.Algorithms.WordRAM.Refuter4n Cslib.Algorithms.WordRAM.XORSATDense
 
 /-- One XOR gate on `3` bits (gate name `3`). -/
 def xor3Circuit : Circuit (fullSignature 2 Bool) 3 1 :=
@@ -345,5 +347,69 @@ example (g : Gate) {s : Finset ℕ} {N : ℕ} (hs : ∀ i ∈ s, i < N) (hne : s
     rowLit (rowOf g) = (argCode g.lit.arg, g.lit.neg.toNat) ∧
       (List.range N).find? (fun i => decide (i ∈ s)) = some (s.min' hne) :=
   ⟨rowLit_rowOf g, find?_range_eq_min' hs hne⟩
+
+/-! The packed oracle on the moved state of `xor3Circuit`: the auxiliary variable `x₃` is
+`x₀ + x₁` (mask `3`), as `findAffineRep` computes; unit rows are packed dense rows. -/
+
+#guard unitWord 4 2 true == 20
+#guard unitWord 4 2 true == rowWord (toDenseRow 4 {2} true)
+#guard pEvaluateAux 4 22 3 xorP₁ (fun j => j == 0) == evaluateAux xorS₁ 3 (fun j => j == 0)
+#guard pEvaluateAux 4 22 3 xorP₁ (fun j => j == 0) == true
+#guard pEvaluateAux 4 22 3 xorP₁ (fun j => j == 2) == false
+#guard pFindAffineRep 4 22 3 xorP₁ ==
+  ((findAffineRep xorS₁ 3).1, maskOf (findAffineRep xorS₁ 3).2)
+#guard pFindAffineRep 4 22 3 xorP₁ == (false, 3)
+#guard swapWord 4 0 3 (false, 3) ==
+  rowWord (toDenseRow 4 (symmDiff (({0, 1} : Finset ℕ).erase 0) {3}) false)
+#guard pAuxArgs xorP₁ (rowOf (.mk (· && ·) (.node 3) (.node 1))) == some (3, 1)
+#guard pPaired xorPp 1 && !pPaired xorPp 2
+
+/-- The packed oracle (module clients of `Rep.pEvaluateAux_eq` and `Rep.pFindAffineRep_eq`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {a : ℕ} (ha : a ∈ S.aux) (val : ℕ → Bool) :
+    pEvaluateAux N E a P val = evaluateAux S a val ∧
+      pFindAffineRep N E a P = ((findAffineRep S a).1, maskOf (findAffineRep S a).2) :=
+  ⟨h.pEvaluateAux_eq (h.bounded hS) hS.wf ha val, h.pFindAffineRep_eq (h.bounded hS) hS.wf ha⟩
+
+/-- The packed `(D4)` (module clients of `Rep.unitDelete` and `Rep.applyStep_deleteUnitParam`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {x : ℕ} (hx : x < N) (e : ℕ) :
+    Rep N E (pUnitDelete N E x e P) (unitDelete S x e) ∧
+      Rep N E (pUnitDelete N E x e P) (applyStep S (.deleteUnitParam x e)) :=
+  ⟨h.unitDelete (h.bounded hS) hS.wf hx e, h.applyStep_deleteUnitParam hS hx e⟩
+
+/-- Packed auxiliary arguments, pairing and the swap step (module clients of `unitWord_eq`,
+`swapWord_eq`, `Rep.pAuxArgs_eq`, `Rep.pPaired_eq` and `Rep.applyStep_swapAuxIn`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {G : ℕ} (hG : G ∈ S.gates) (g : Gate) (y : ℕ) {p x Q : ℕ} (hp : p < N)
+    {T : Finset ℕ} (hT : ∀ j ∈ T, j < N) (hQ : Q < N) (b c : Bool) :
+    unitWord N p b = rowWord (toDenseRow N {p} b) ∧
+      swapWord N x Q (c, maskOf T) = rowWord (toDenseRow N (symmDiff (T.erase x) {Q}) c) ∧
+      pAuxArgs P (rowOf g) = auxArgs S g ∧ pPaired P y = decide (S.Paired y) ∧
+      Rep N E (pSwapAuxIn N E G P) (applyStep S (.swapAuxIn G)) :=
+  ⟨unitWord_eq hp b, swapWord_eq hT hQ c, h.pAuxArgs_eq g, h.pPaired_eq y,
+    h.applyStep_swapAuxIn hS hG⟩
+
+/-! Case 3 on a gate reading both members of a pair: `rowPhi` reads the truth table. -/
+
+#guard rowPhi (rowOf ⟨(· && ·), .node 0, .node 1⟩) 0 true false == false
+#guard rowPhi (rowOf ⟨(· && ·), .node 0, .node 1⟩) 0 true true == true
+#guard rowPhi (rowOf ⟨fun a b => a && !b, .node 1, .node 0⟩) 0 true false == false
+
+/-- The packed Case 3 (module clients of `rowPhi_rowOf` and
+`Rep.applyStep_partnersShareChild`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {p : ℕ} (hp : p < N) (g : Gate) (t : ℕ) (a b : Bool) :
+    rowPhi (rowOf g) t a b =
+        g.op (if g.left = .node t then a else b) (if g.right = .node t then a else b) ∧
+      Rep N E (pPartnersShareChild N E p P) (applyStep S (.partnersShareChild p)) :=
+  ⟨rowPhi_rowOf g t a b, h.applyStep_partnersShareChild hS hp⟩
+
+/-- The packed Case 4 (module client of `Rep.applyStep_pairInSystem`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) (hndeg : ¬ S.DegeneratePair) (hnsh : ¬ S.PartnersShareChild) {p : ℕ}
+    (hp : p < N) (hout : ¬ S.out.Reads p) :
+    Rep N E (pPairInSystem N E p P) (applyStep S (.pairInSystem p)) :=
+  h.applyStep_pairInSystem hS hndeg hnsh hp hout
 
 end CslibFrontierTests.Refuter4nPackedOps
