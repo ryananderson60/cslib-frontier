@@ -6724,6 +6724,7 @@ public import CslibFrontier.Algorithms.WordRAM.MinimumSpanningForest.Partition.O
 public import CslibFrontier.Computability.LogSpaceDerandomization.RootMetric
 public import CslibFrontier.Crypto.Protocols.MPC.MaskedOT.DDH
 public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedState
+public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedOps
 public import CslibFrontier.Foundations.LinearAlgebra.Matrix.Order
 public import CslibFrontier.Algorithms.WordRAM.EdmondsKarp.BfsSemantics
 public import CslibFrontier.Algorithms.WordRAM.MatrixMultiplication.Schonhage.Pruned.ProgressEmpty
