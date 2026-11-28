@@ -19,7 +19,8 @@ touched masks, gate rows, equation words and output are compared with the encodi
 state operations, and the rows of the parameter map by evaluation. The packed steps
 (`pDeleteConstraint`, `pFreshEqn`) are checked on masks, the output and the alive flags, and
 dropping, the reparameterisation and pair creation on the moved state; the searches `pFindPair`,
-`pGetChildren` and `pFindReader` are compared with `findPair`, `getChildren` and the reader search.
+`pGetChildren` and `pFindReader` are compared with `findPair`, `getChildren` and the reader search,
+and restriction is checked on a state with a pair.
 -/
 
 set_option linter.hashCommand false
@@ -198,6 +199,21 @@ the gate `3`; the gate `3` of `degCircuit` reads the gate `2`). -/
   (fun K => decide (K ≠ 2 ∧ ((initialState degCircuit).gate K).Reads 2))
 #guard pFindReader 4 2 degP == some 3
 
+/-! Restriction with a pair: after adding the pair `(x₀, x₁)` (record `(0, 3)`), fixing `x₀`
+drops the record and fixing `x₂` keeps it, as `State.pairsAvoid` does. -/
+
+/-- The initial state of `xor3Circuit` with the pair `⟨0, false, 1, true⟩`. -/
+def xorSp : State 3 := (initialState xor3Circuit).addPair ⟨0, false, 1, true⟩
+
+/-- The packed state with that pair. -/
+def xorPp : PackedState := xorP.addPair (pairCode ⟨0, false, 1, true⟩)
+
+#guard (xorPp.restrictAvoid 4 0 1 0).pairs == []
+#guard (xorSp.fixConst 0 true).pairs.card == 0
+#guard (xorPp.restrictAvoid 4 2 1 0).pairs == [(0, 3)]
+#guard (xorSp.fixConst 2 true).pairs.card == 1
+#guard decide ((⟨0, false, 1, true⟩ : ZeroPair) ∈ (xorSp.fixConst 2 true).pairs)
+
 /-- Packed gate deletion represents gate deletion (module client of `Rep.deleteGate`). -/
 example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
     (hS : S.Valid f) {J : ℕ} (hJ : J < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
@@ -263,5 +279,71 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : Boo
 example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (p : ℕ) :
     pFindPair N p P = findPair S p :=
   h.pFindPair_eq p
+
+/-- Packed restriction (module client of `Rep.restrictAvoid`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (hB : Bounded N S)
+    {x : ℕ} (hx : x < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
+    Rep N E (P.restrictAvoid N x (argCode ℓ.arg) ℓ.neg.toNat)
+      (S.restrict x ℓ (S.pairsAvoid x)) :=
+  h.restrictAvoid hB hx hℓ
+
+/-- Packed equation deletion (module client of `Rep.deleteEqn`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (hB : Bounded N S)
+    (e : ℕ) {v : ℕ} (hv : v < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
+    Rep N E (P.deleteEqn N e v (argCode ℓ.arg) ℓ.neg.toNat) (S.deleteEqn e v ℓ) :=
+  h.deleteEqn hB e hv hℓ
+
+/-- Packed constraint deletion (module client of `Rep.pDeleteConstraint`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (hB : Bounded N S)
+    {J : ℕ} (hJ : J ∈ S.gates) :
+    Rep N E (pDeleteConstraint N P (.inl J)) (S.deleteConstraint (.inl J)) :=
+  h.pDeleteConstraint hB hJ
+
+/-- The packed `(D1)` and `(D2)` steps (module clients of `Rep.applyStep_deleteConstantGate`
+and `Rep.applyStep_deleteDeadGate`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (hB : Bounded N S)
+    {J : ℕ} (hJ : J ∈ S.gates) :
+    Rep N E (pDeleteConstraint N P (.inl J)) (applyStep S (.deleteConstantGate J)) ∧
+      Rep N E (P.deleteGate N J 0 0) (applyStep S (.deleteDeadGate J)) :=
+  ⟨h.applyStep_deleteConstantGate hB hJ, h.applyStep_deleteDeadGate hB hJ⟩
+
+/-- Packed searches (module clients of `Rep.pFindReader_eq`, `Rep.pGetChildren_eq`,
+`Rep.length_pGetChildren`, `Rep.mem_pairs_iff` and `Rep.pFreshEqn_eq`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (G : ℕ) {p : ℕ}
+    (hp : p < N) (pr : ZeroPair) :
+    pFindReader N G P =
+        (S.gates.sort (· ≤ ·)).find? (fun K => decide (K ≠ G ∧ (S.gate K).Reads G)) ∧
+      pGetChildren N E p P = getChildren S p ∧ (pGetChildren N E p P).length = S.deg p ∧
+      (pairCode pr ∈ P.pairs ↔ pr ∈ S.pairs) ∧ pFreshEqn N E P = S.freshEqn :=
+  ⟨h.pFindReader_eq G, h.pGetChildren_eq hp, h.length_pGetChildren hp, h.mem_pairs_iff pr,
+    h.pFreshEqn_eq⟩
+
+/-- Packed pair creation (module client of `Rep.applyStep_pairCreation`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) (hB : Bounded N S)
+    {G : ℕ} (hG : G ∈ S.gates)
+    (hfresh : ∀ t, (S.gate G).left = .node t → ∀ pr ∈ S.pairs, pr.fst ≠ t) :
+    Rep N E (pPairCreation N G P) (applyStep S (.pairCreation G)) :=
+  h.applyStep_pairCreation hB hG hfresh
+
+/-- The packed Case 2 (module client of `Rep.applyStep_degeneratePair`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {p : ℕ} (hp : p < N) :
+    Rep N E (pDegeneratePair N E p P) (applyStep S (.degeneratePair p)) :=
+  h.applyStep_degeneratePair hS hp
+
+/-- Deleting a constraint keeps the others and boundedness (module clients of
+`elim_mem_deleteConstraint` and `Bounded.deleteConstraint`). -/
+example {n N : ℕ} {S : State n} (hB : Bounded N S) {c c' : ℕ ⊕ ℕ} (hne : c' ≠ c)
+    (hc : c.elim (· ∈ S.gates) (· ∈ S.eqns)) (hc' : c'.elim (· ∈ S.gates) (· ∈ S.eqns)) :
+    Bounded N (S.deleteConstraint c) ∧
+      c'.elim (· ∈ (S.deleteConstraint c).gates) (· ∈ (S.deleteConstraint c).eqns) :=
+  ⟨hB.deleteConstraint hc, elim_mem_deleteConstraint hne hc'⟩
+
+/-- The literal of a gate row and the least name (module clients of `rowLit_rowOf` and
+`find?_range_eq_min'`). -/
+example (g : Gate) {s : Finset ℕ} {N : ℕ} (hs : ∀ i ∈ s, i < N) (hne : s.Nonempty) :
+    rowLit (rowOf g) = (argCode g.lit.arg, g.lit.neg.toNat) ∧
+      (List.range N).find? (fun i => decide (i ∈ s)) = some (s.min' hne) :=
+  ⟨rowLit_rowOf g, find?_range_eq_min' hs hne⟩
 
 end CslibFrontierTests.Refuter4nPackedOps

@@ -170,7 +170,8 @@ auxiliary term `v` and its least other term, or drop `e` if it has no auxiliary 
 
 /-- Case 5b, pair creation on the gate `G` (`applyStep` of `.pairCreation G`): add the pair of
 its two arguments with the biases making the gate constant, delete `G` as that constant, and
-delete the least gate reading `G`. -/
+delete the least other gate reading `G`. If an argument of `G` is a constant or no other gate
+reads `G`, the state is unchanged, as in `applyStep`. -/
 @[expose] def pPairCreation (N G : ℕ) (P : PackedState) : PackedState :=
   if 2 ≤ (P.gateRows.getD G ⟨0, 0, 0⟩).left ∧ 2 ≤ (P.gateRows.getD G ⟨0, 0, 0⟩).right then
     let t := (P.gateRows.getD G ⟨0, 0, 0⟩).tt
@@ -322,12 +323,17 @@ namespace Rep
 
 variable {N E : ℕ} {P : PackedState} {S : State n} {f : BooleanFunction n}
 
+/-- A copy of the private `Rep.lt_of_mem_nameSet` of `PackedState`; it can go once that helper is
+public. -/
+private theorem lt_names (h : Rep N E P S) {i : ℕ} (hi : i ∈ nameSet S) : i < N :=
+  Finset.mem_range.1 (h.names hi)
+
 /-- The packed reader search is the reader search of `applyStep`. -/
 theorem pFindReader_eq (h : Rep N E P S) (G : ℕ) :
     pFindReader N G P =
       (S.gates.sort (· ≤ ·)).find? (fun K => decide (K ≠ G ∧ (S.gate K).Reads G)) := by
   rw [find?_sort_eq_find?_range (N := N) fun i hi =>
-    Finset.mem_range.1 (h.names (by simp [nameSet, hi])), pFindReader, ← h.gates]
+    h.lt_names (by simp [nameSet, hi]), pFindReader, ← h.gates]
   refine List.find?_congr fun K _ => ?_
   by_cases hK : K ∈ S.gates
   · have hbit : P.gates.testBit K = true := by rw [h.gates, testBit_maskOf]; simpa using hK
@@ -364,7 +370,7 @@ theorem pDeleteConstraint (h : Rep N E P S) (hB : Bounded N S) {c : ℕ ⊕ ℕ}
     change Rep N E (P.deleteGate N J (rowLit (P.gateRows.getD J ⟨0, 0, 0⟩)).1
       (rowLit (P.gateRows.getD J ⟨0, 0, 0⟩)).2) (S.deleteGate J (S.gate J).lit)
     rw [hrow]
-    exact h.deleteGate hB (Finset.mem_range.1 (h.names (by simp [nameSet, hc])))
+    exact h.deleteGate hB (h.lt_names (by simp [nameSet, hc]))
       fun y hy => hB.reads J hc y (Gate.reads_of_lit_reads hy)
   · change e ∈ S.eqns at hc
     have hw : ∀ i, (P.eqnRows.getD e 0).testBit i = (eqnWord N (S.eqn e) true).testBit i :=
@@ -432,7 +438,7 @@ theorem applyStep_deleteConstantGate (h : Rep N E P S) (hB : Bounded N S) {J : �
 theorem applyStep_deleteDeadGate (h : Rep N E P S) (hB : Bounded N S) {J : ℕ}
     (hJ : J ∈ S.gates) :
     Rep N E (P.deleteGate N J 0 0) (applyStep S (.deleteDeadGate J)) :=
-  h.deleteGate hB (ℓ := Lit.const false) (Finset.mem_range.1 (h.names (by simp [nameSet, hJ])))
+  h.deleteGate hB (ℓ := Lit.const false) (h.lt_names (by simp [nameSet, hJ]))
     fun y hy => absurd hy (by simp [Lit.Reads, Lit.const])
 
 /-- **Moving an affine gate.** Moving the gate `J` of a represented state into the affine system
@@ -459,7 +465,7 @@ theorem mem_pairs_iff (h : Rep N E P S) (pr : ZeroPair) :
 /-- The packed pair search is `findPair`. -/
 theorem pFindPair_eq (h : Rep N E P S) (p : ℕ) : pFindPair N p P = findPair S p := by
   rw [findPair, findSome?_sort_eq_findSome?_range (N := N) fun i hi =>
-    Finset.mem_range.1 (h.names (by simp [nameSet, hi])), ← h.params, pFindPair]
+    h.lt_names (by simp [nameSet, hi]), ← h.params, pFindPair]
   simp only [h.mem_pairs_iff]
 
 /-- The packed children of a name below `N` are `getChildren`. -/
@@ -467,7 +473,7 @@ theorem pGetChildren_eq (h : Rep N E P S) {p : ℕ} (hp : p < N) :
     pGetChildren N E p P = getChildren S p := by
   unfold pGetChildren getChildren
   rw [sort_eq_filter_range' (N := N) fun i hi =>
-      Finset.mem_range.1 (h.names (by simp [nameSet, hi])),
+      h.lt_names (by simp [nameSet, hi]),
     sort_eq_filter_range' (N := E) fun e he => Finset.mem_range.1 (h.eqns he),
     List.filterMap_filter, List.filterMap_filter]
   congr 1
@@ -540,7 +546,7 @@ the first member of no pair, the packed pair creation represents `applyStep` of
 theorem applyStep_pairCreation (h : Rep N E P S) (hB : Bounded N S) {G : ℕ}
     (hG : G ∈ S.gates) (hfresh : ∀ t, (S.gate G).left = .node t → ∀ pr ∈ S.pairs, pr.fst ≠ t) :
     Rep N E (pPairCreation N G P) (applyStep S (.pairCreation G)) := by
-  have hGN : G < N := Finset.mem_range.1 (h.names (by simp [nameSet, hG]))
+  have hGN : G < N := h.lt_names (by simp [nameSet, hG])
   have hrow := h.gateRow G hG
   rcases hgate : S.gate G with ⟨op, l, r⟩
   rw [hgate] at hrow hfresh

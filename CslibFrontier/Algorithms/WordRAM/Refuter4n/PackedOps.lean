@@ -481,7 +481,9 @@ private theorem eqnTable_set {N E : ℕ} {L : List ℕ} {s : Finset ℕ} (hlen :
 /-! ### Bounded states -/
 
 /-- The names read by the equations, the gates and the output of `S` are below `N`. A valid
-represented state is bounded (`Rep.bounded`), and every state operation preserves it. -/
+represented state is bounded (`Rep.bounded`). Gate deletion, restriction and equation deletion
+by a literal reading names below `N`, dropping an equation, swapping, adding a pair, and moving a
+gate below `N` preserve it (`Bounded.deleteGate` to `Bounded.moveAffine`). -/
 structure Bounded (N : ℕ) (S : State n) : Prop where
   /-- Terms of equations are below `N`. -/
   terms : ∀ e ∈ S.eqns, ∀ j ∈ (S.eqn e).terms, j < N
@@ -606,6 +608,8 @@ private theorem subst (h : Rep N E P S) (hB : Bounded N S) {v : ℕ}
     (hv : v < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
     Rep N E (P.subst N v (argCode ℓ.arg) ℓ.neg.toNat) (substState S v ℓ) := by
   have hlw : litWordOf N (argCode ℓ.arg) ℓ.neg.toNat = litWord N ℓ := litWordOf_eq hℓ
+  -- An inline copy of the private `argCode_lt` of `PackedState`; it can go once that lemma is
+  -- public.
   have hla : argCode ℓ.arg < N + 2 := by
     obtain ⟨a, _⟩ := ℓ
     cases a with
