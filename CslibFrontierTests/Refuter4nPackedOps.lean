@@ -412,4 +412,26 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : Boo
     Rep N E (pPairInSystem N E p P) (applyStep S (.pairInSystem p)) :=
   h.applyStep_pairInSystem hS hndeg hnsh hp hout
 
+/-- The packed Case 5a (module clients of `rowOtherArg_rowOf`, `rowFixArg_rowOf`,
+`Rep.andOnPairStep` and `Rep.pAndOnPair_eq`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {G : ℕ} (hG : G ∈ S.gates) {pr : ZeroPair} (hpr : pr ∈ S.pairs) {p w : ℕ}
+    (hw : w < N) (b c : Bool) {Hr : ℕ ⊕ ℕ} (hHr : Hr.elim (· ∈ S.gates) (· ∈ S.eqns))
+    (hHrG : Hr ≠ .inl G) (K : ℕ) (Hw' : ℕ ⊕ ℕ) (g : Gate) :
+    rowOtherArg (rowOf g) p = otherArg g p ∧ rowFixArg (rowOf g) w = fixArg g w ∧
+      Rep N E (pAndOnPairStep N G pr p w none b c Hr K Hw' P)
+        (S.andOnPairStep G pr p w none b c Hr K Hw') :=
+  ⟨rowOtherArg_rowOf g p, rowFixArg_rowOf g w,
+    h.andOnPairStep hS hG hpr hw (fun _ hq => by cases hq) b c hHr hHrG (fun _ hq => by cases hq)⟩
+
+/-- The arguments of the packed Case 5a (module client of `Rep.pAndOnPair_eq`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {G : ℕ} (hG : G ∈ S.gates) (p : ℕ) :=
+  h.pAndOnPair_eq hS hG p
+
+#guard rowOtherArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 0 == 1
+#guard rowOtherArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 1 == 0
+#guard rowFixArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 1 == fixArg ⟨(· && ·), .node 0, .node 1⟩ 1
+#guard rowFixArg (rowOf ⟨(· && ·), .node 0, .node 1⟩) 1 == (false, false)
+
 end CslibFrontierTests.Refuter4nPackedOps
