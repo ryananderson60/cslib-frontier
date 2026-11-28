@@ -7,16 +7,17 @@ Authors: Ryan Anderson
 module
 -- upstream: local-only (test)
 
-public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedOps
-public meta import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedOps
+public import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedStep
+public meta import CslibFrontier.Algorithms.WordRAM.Refuter4n.PackedStep
 
 /-!
-# Tests for the packed primitive operations of the `4n - 9d` refuter
+# Tests for the packed operations and steps of the `4n - 9d` refuter
 
 `deleteGate` and `moveAffine` are run on two small circuits at the first step the refuter takes
-there, and `restrictAvoid` on fixing a parameter of `xor3Circuit`; the touched masks, gate rows,
-equation words and output are compared with the encodings of the state operations, and the rows
-of the parameter map by evaluation.
+there, and `restrictAvoid` on fixing a parameter of `xor3Circuit`; the
+touched masks, gate rows, equation words and output are compared with the encodings of the
+state operations, and the rows of the parameter map by evaluation. The packed steps
+(`pDeleteConstraint`, `pFreshEqn`) are checked on masks, the output and the alive flags.
 -/
 
 set_option linter.hashCommand false
@@ -126,6 +127,28 @@ def xorPF : PackedState := xorP.restrictAvoid 4 0 1 0
 #guard substWord 1 (litWordOf 4 (argCode (.node 2)) 1) (eqnWord 4 ⟨{0, 1}, true⟩ true) ==
   eqnWord 4 (Equation.subst ⟨{0, 1}, true⟩ 1 ⟨.node 2, true⟩) true
 
+/-! Packed steps: the `(D1)` step through `pDeleteConstraint` reads the literal of gate `3` from
+its row and agrees with the `deleteGate` above; the fresh equation name is `0` before moving the
+XOR gate and `1` after; deleting the moved equation `0` through its least auxiliary term `3`
+agrees with `State.deleteConstraint`. -/
+
+#guard rowLit (degP.gateRows.getD 3 ⟨0, 0, 0⟩) == (argCode degLit.arg, degLit.neg.toNat)
+#guard (pDeleteConstraint 4 degP (.inl 3)).gates == maskOf degS₁.gates
+#guard (pDeleteConstraint 4 degP (.inl 3)).out == litCode degS₁.out
+#guard pFreshEqn 4 22 xorP == (initialState xor3Circuit).freshEqn
+#guard pFreshEqn 4 22 xorP₁ == 1
+#guard pFreshEqn 4 22 xorP₁ == xorS₁.freshEqn
+
+/-- `State.deleteConstraint` of the moved equation `0`. -/
+def xorS₂ : State 3 := xorS₁.deleteConstraint (.inr 0)
+
+/-- The packed deletion of the moved equation `0`. -/
+def xorP₂ : PackedState := pDeleteConstraint 4 xorP₁ (.inr 0)
+
+#guard xorP₂.aux == maskOf xorS₂.aux
+#guard xorP₂.out == litCode xorS₂.out
+#guard (List.range 22).all fun e => (xorP₂.eqnRows.getD e 0).testBit 5 == decide (e ∈ xorS₂.eqns)
+
 /-- Packed gate deletion represents gate deletion (module client of `Rep.deleteGate`). -/
 example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
     (hS : S.Valid f) {J : ℕ} (hJ : J < N) {ℓ : Lit} (hℓ : ∀ y, ℓ.Reads y → y < N) :
@@ -144,5 +167,19 @@ example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : Boo
     (hS : S.Valid f) {w : ℕ} (hw : w < N) (b : Bool) :
     Rep N E (P.restrictAvoid N w b.toNat 0) (S.fixConst w b) :=
   h.fixConst hS hw b
+
+/-- The packed `(D3)` step represents `applyStep` (module client of
+`Rep.applyStep_deleteShortEqn`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {f : BooleanFunction n}
+    (hS : S.Valid f) {e : ℕ} (he : e ∈ S.eqns) :
+    Rep N E (pDeleteConstraint N P (.inr e)) (applyStep S (.deleteShortEqn e)) :=
+  h.applyStep_deleteShortEqn hS he
+
+/-- The packed moving step represents `applyStep` (module client of
+`Rep.applyStep_moveAffine`). -/
+example {n N E : ℕ} {P : PackedState} {S : State n} (h : Rep N E P S) {J : ℕ}
+    (hJ : J ∈ S.gates) (he : S.freshEqn < E) :
+    Rep N E (P.moveAffine N J (pFreshEqn N E P)) (applyStep S (.moveAffine J)) :=
+  h.applyStep_moveAffine hJ he
 
 end CslibFrontierTests.Refuter4nPackedOps
